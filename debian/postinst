@@ -1,0 +1,88 @@
+#!/bin/bash
+ROOT_UID=0
+THEME_DIR="/usr/share/grub/themes"
+THEME_NAME=taebaek
+THEME_PATH="${THEME_DIR}/${THEME_NAME}"
+
+function has_command() {
+  command -v $1 > /dev/null
+}
+
+# Find out the screen dpi
+SCALING=1
+if ! command -v hwinfo >/dev/null 2>&1 ; then
+    echo "Command 'hwinfo' not found. Cannot determine monitor dpi"
+else
+    MONITOR=`hwinfo --monitor`
+    if [ -n "$MONITOR" ]; then
+        MODEL=$(echo "$MONITOR" | grep -m 1 Model)
+        if [ -n "$MODEL" ]; then
+            echo "Found monitor"$MODEL
+        fi
+        SIZE=$(echo "$MONITOR" | grep -m 1 Size | sed -n -E 's/ *Size[ :]*([0-9]+)x[0-9]+.*/\1/p')
+        if [ -n "$SIZE" ]; then
+            RES=$(echo "$MONITOR" | grep -m 1 Resolution | sed -n -E 's/ *Resolution[ :]*([0-9]+)x[0-9]+.*/\1/p')
+            SCALING=$(($RES / $SIZE / 3))
+            SCALING=$(($SCALING<1?1:$SCALING))
+            SCALING=$(($SCALING>4?4:$SCALING))
+        fi
+    fi
+fi
+
+# Change sizes according to dpi
+FONT_SIZE=$((13 * $SCALING)) 
+ICON_WIDTH=$((25 * $SCALING))
+ICON_HEIGHT=$((25 * $SCALING))
+ITEM_ICON_SPACE=$((7 * $SCALING))
+ITEM_HEIGHT=$((30 * $SCALING))
+ITEM_SPACING=$((5 * $SCALING))
+
+# scale 2 일때 폰트가 너무 커서 조정
+if [ $SCALING = "2" ]; then
+    cp -v "${THEME_PATH}/fonts/D2Coding-Ver1-22.pf2" ${THEME_PATH}
+else
+    cp -v "${THEME_PATH}/fonts/D2Coding-Ver1-"$FONT_SIZE".pf2" ${THEME_PATH}
+fi
+sed -i 's/ICON_WIDTH/'"$ICON_WIDTH"'/' ${THEME_PATH}/theme.txt
+sed -i 's/ICON_HEIGHT/'"$ICON_HEIGHT"'/' ${THEME_PATH}/theme.txt
+sed -i 's/ITEM_ICON_SPACE/'"$ITEM_ICON_SPACE"'/' ${THEME_PATH}/theme.txt
+sed -i 's/ITEM_HEIGHT/'"$ITEM_HEIGHT"'/' ${THEME_PATH}/theme.txt
+sed -i 's/ITEM_SPACING/'"$ITEM_SPACING"'/' ${THEME_PATH}/theme.txt
+
+# for hamonikr os  
+if [[ -f "/etc/hamonikr/info" ]] ; then
+  if [ -x "/etc/hamonikr/adjustments/10-adjust-grub-title.execute" ] ; then
+    /etc/hamonikr/adjustments/10-adjust-grub-title.execute
+  else
+    OSNAME=$( sed -n '/GRUB_TITLE=/p' /etc/hamonikr/info | cut -d'=' -f2 | sed 's/"//g' ) >/dev/null 2>&1
+    sed -i.bak '/GRUB_DISTRIBUTOR=/d' /etc/default/grub >/dev/null 2>&1
+    echo "GRUB_DISTRIBUTOR=\"${OSNAME}\"" >> /etc/default/grub
+  fi
+fi
+
+if [ -f "/etc/default/grub" ] ; then
+  # Set theme
+  echo -e "Setting ${THEME_NAME} as default..."
+
+  grep "GRUB_THEME=" /etc/default/grub 2>&1 >/dev/null && sed -i.bak '/GRUB_THEME=/d' /etc/default/grub
+  [[ -d /boot/grub ]] && echo "GRUB_THEME=\"${THEME_PATH}/theme.txt\"" >> /etc/default/grub  
+
+  sed -i.bak '/GRUB_TIMEOUT=/d' /etc/default/grub >/dev/null 2>&1
+  echo "GRUB_TIMEOUT=5" >> /etc/default/grub 
+fi
+
+# Update grub config
+echo -e "Updating grub config..."
+if has_command update-grub; then
+    update-grub
+elif has_command grub-mkconfig; then
+    grub-mkconfig -o /boot/grub/grub.cfg
+fi
+
+if which systemctl >/dev/null 2>&1
+then
+    if [ $(systemctl is-enabled hamonikr-system) = "disabled" ] ; then
+      systemctl enable hamonikr-system.service
+      systemctl daemon-reload
+    fi
+fi
